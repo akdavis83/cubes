@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>WebGL Screensaver</title>
+<style>
+  body { margin: 0; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="glCanvas"></canvas>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+<script type="module">
+  // Get the canvas element
+  const canvas = document.getElementById('glCanvas');
+  const gl = canvas.getContext('webgl2');
+
+  if (!gl) {
+    alert("WebGL 2 not available. Please use a compatible browser.");
+  }
+
+  // Set up the canvas size
+  function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      gl.viewport(0, 0, canvas.width, canvas.height);
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  // Background color (dark blue)
+  gl.clearColor(0.04, 0.07, 0.15, 1);
+
+  // Enable depth testing and blending
+  gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+  // --- Shader Program ---
+  const vertexShaderSource = `#version 300 es
+    in vec4 a_position;
+    uniform mat4 u_projectionMatrix;
+    uniform mat4 u_modelViewMatrix;
+    
+    void main() {
+      gl_Position = u_projectionMatrix * u_modelViewMatrix * a_position;
+    }
+  `;
+
+  const fragmentShaderSource = `#version 300 es
+    precision highp float;
+    uniform vec4 u_color;
+    out vec4 outColor;
+
+    void main() {
+      outColor = u_color;
+    }
+  `;
+
+  function createShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      console.error('Shader compilation error:', gl.getShaderInfoLog(shader));
+      gl.deleteShader(shader);
+      return null;
+    }
+    return shader;
+  }
+
+  function createProgram(gl, vertexShader, fragmentShader) {
+      const program = gl.createProgram();
+      gl.attachShader(program, vertexShader);
+      gl.attachShader(program, fragmentShader);
+      gl.linkProgram(program);
+
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+          console.error('Program linking error:', gl.getProgramInfoLog(program));
+          gl.deleteProgram(program);
+          return null;
+      }
+      return program;
+  }
+
+  const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+  const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+  if (!vertexShader || !fragmentShader) {
+    console.error("Shader creation failed.");
+  }
+
+  const program = createProgram(gl, vertexShader, fragmentShader);
+  if (!program) {
+      console.error("Program creation failed.");
+  }
+
+  // Get attribute and uniform locations
+  const positionAttributeLocation = gl.getAttribLocation(program, "a_position");
+  const projectionMatrixUniformLocation = gl.getUniformLocation(program, 'u_projectionMatrix');
+  const modelViewMatrixUniformLocation = gl.getUniformLocation(program, 'u_modelViewMatrix');
+  const colorUniformLocation = gl.getUniformLocation(program, 'u_color');
+
+  gl.useProgram(program);
+
+  // --- Square Rendering ---
+  function drawSolidSquare(x, y, size, color) {
+      const vertices = [
+          x, y, 0,
+          x + size, y, 0,
+          x + size, y + size, 0,
+          x, y + size, 0,
+      ];
+
+    const positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+    gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(positionAttributeLocation);
+
+
+      const modelViewMatrix = mat4.create();
+      mat4.translate(modelViewMatrix, modelViewMatrix, [0,0,0]);
+      gl.uniformMatrix4fv(modelViewMatrixUniformLocation, false, modelViewMatrix);
+
+      gl.uniform4f(colorUniformLocation, color[0], color[1], color[2], color[3]);
+      gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+      gl.deleteBuffer(positionBuffer);
+  }
+
+  // --- Cube Rendering ---
+    const cubeVertices = [
+        [1, 1, -1],
+        [1, -1, -1],
+        [-1, -1, -1],
+        [-1, 1, -1],
+        [1, 1, 1],
+        [1, -1, 1],
+        [-1, -1, 1],
+        [-1, 1, 1],
+    ];
+
+    const cubeEdges = [
+        [0, 1], [1, 2], [2, 3], [3, 0],
+        [4, 5], [5, 6], [6, 7], [7, 4],
+        [0, 4], [1, 5], [2, 6], [3, 7]
+    ];
+  
+  function drawWireframeCube(angle) {
+      const vertices = [];
+      const indices = [];
+      for(let i=0; i<cubeEdges.length; ++i){
+        for(let j=0; j<2; ++j){
+          const v = cubeEdges[i][j];
+           vertices.push(...cubeVertices[v]);
+        }
+      }
+    
+    const positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+    gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(positionAttributeLocation);
+
+
+      // Model-view matrix
+      const modelViewMatrix = mat4.create();
+        mat4.translate(modelViewMatrix, modelViewMatrix, [0, 0, -10]);
+        mat4.rotate(modelViewMatrix, modelViewMatrix, angle, [1, 1, 0]);
+      mat4.scale(modelViewMatrix, modelViewMatrix, [2, 2, 2]);
+      gl.uniformMatrix4fv(modelViewMatrixUniformLocation, false, modelViewMatrix);
+
+      // Set the color for the wireframe
+      gl.uniform4f(colorUniformLocation, 0.4, 0.8, 1.0, 1);
+      gl.lineWidth(3);
+      gl.drawArrays(gl.LINES, 0, vertices.length/3);
+      gl.deleteBuffer(positionBuffer);
+  }
+
+  // Render loop
+    let angle = 0;
+    function render() {
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        // --- 3D Cube ---
+        const projectionMatrix3D = mat4.create();
+        mat4.perspective(projectionMatrix3D, 45 * Math.PI / 180, canvas.width / canvas.height, 0.1, 100.0);
+      gl.uniformMatrix4fv(projectionMatrixUniformLocation, false, projectionMatrix3D);
+
+        drawWireframeCube(angle);
+
+        // --- 2D Squares ---
+      const projectionMatrix2D = mat4.create();
+      mat4.ortho(projectionMatrix2D, 0, canvas.width, 0, canvas.height, -1, 1);
+        gl.uniformMatrix4fv(projectionMatrixUniformLocation, false, projectionMatrix2D);
+      const squareSize = canvas.width / 8;
+      const marginX = (canvas.width - (squareSize * 4)) / 2;
+      const marginY = (canvas.height - (squareSize * 4)) / 2;
+
+        for (let row = 0; row < 4; row++) {
+            for (let col = 0; col < 4; col++) {
+              const x = marginX + col * squareSize;
+              const y = marginY + row * squareSize;
+              drawSolidSquare(x, y, squareSize, [0.2, 0.3, 0.4, 0.2]);
+            }
+      }
+
+      angle += 0.005;
+      if (angle >= 2 * Math.PI) {
+        angle -= 2 * Math.PI;
+      }
+
+      requestAnimationFrame(render);
+    }
+
+  // Start the rendering
+  render();
+
+
+</script>
+</body>
+</html>
